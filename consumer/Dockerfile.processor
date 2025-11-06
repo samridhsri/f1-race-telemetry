@@ -1,0 +1,47 @@
+FROM apache/spark-py:v3.3.2
+
+USER root
+
+# Install system dependencies including curl
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install required Python packages
+WORKDIR /app
+
+COPY requirements-processor.txt .
+RUN pip install --no-cache-dir -r requirements-processor.txt
+
+# Create checkpoint directories
+RUN mkdir -p /tmp/checkpoint/lap /tmp/checkpoint/telemetry /tmp/checkpoint/position \
+    /tmp/checkpoint/driver_info /tmp/checkpoint/race_results /tmp/checkpoint/weather && \
+    chmod -R 777 /tmp/checkpoint
+
+# Download MongoDB connector JARs
+RUN mkdir -p /opt/spark/jars && \
+    curl -o /opt/spark/jars/mongo-spark-connector_2.12-10.4.1.jar \
+    https://repo1.maven.org/maven2/org/mongodb/spark/mongo-spark-connector_2.12/10.4.1/mongo-spark-connector_2.12-10.4.1.jar && \
+    curl -o /opt/spark/jars/mongodb-driver-sync-4.7.2.jar \
+    https://repo1.maven.org/maven2/org/mongodb/mongodb-driver-sync/4.7.2/mongodb-driver-sync-4.7.2.jar && \
+    curl -o /opt/spark/jars/mongodb-driver-core-4.7.2.jar \
+    https://repo1.maven.org/maven2/org/mongodb/mongodb-driver-core/4.7.2/mongodb-driver-core-4.7.2.jar && \
+    curl -o /opt/spark/jars/bson-4.7.2.jar \
+    https://repo1.maven.org/maven2/org/mongodb/bson/4.7.2/bson-4.7.2.jar
+
+# Copy the processor script
+COPY f1_streaming_processor.py .
+
+# Set environment variables
+ENV SPARK_HOME=/opt/spark
+ENV PATH=$PATH:$SPARK_HOME/bin:$SPARK_HOME/sbin
+
+# Run the Spark processor
+CMD ["/opt/spark/bin/spark-submit", \
+     "--packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.2,org.mongodb:mongodb-driver-sync:4.7.2,org.mongodb.spark:mongo-spark-connector_2.12:10.4.1", \
+     "--master", "local[*]", \
+     "--conf", "spark.executor.memory=2g", \
+     "--conf", "spark.driver.memory=2g", \
+     "--conf", "spark.sql.shuffle.partitions=8", \
+     "f1_streaming_processor.py"]
