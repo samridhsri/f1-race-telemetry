@@ -1,0 +1,46 @@
+# MLflow Configuration for F1 Data Pipeline
+# This file contains MLflow-specific configurations and experiment settings
+
+experiments:
+  f1_race_prediction:
+    name: "F1 Race Prediction Model"
+    description: "ML model to predict F1 race outcomes using historical telemetry, weather, and driver data"
+    tags:
+      project: "f1-data-pipeline"
+      domain: "motorsports"
+      model_type: "gradient_boosting"
+      
+  driver_performance:
+    name: "Driver Performance Analysis"  
+    description: "Models for analyzing and predicting individual driver performance metrics"
+    tags:
+      project: "f1-data-pipeline"
+      domain: "motorsports"
+      model_type: "regression"
+
+model_registry:
+  production_models:
+    race_predictor:
+      name: "F1RacePredictor"
+      description: "Production model for predicting race finishing positions"
+      stages: ["Staging", "Production", "Archived"]
+      
+  artifact_store:
+    type: "local"
+    path: "/mlflow/artifacts"
+    
+tracking:
+  automatic_logging: true
+  log_models: true
+  log_metrics: true
+  log_params: true
+  log_artifacts: true
+  
+metrics:
+  primary: ["rmse", "r2_score", "mean_absolute_error"]
+  custom: ["position_accuracy", "podium_prediction_rate", "dnf_prediction_rate"]
+  
+artifacts:
+  model_plots: ["feature_importance", "prediction_vs_actual", "residuals"]
+  data_profiles: ["training_data_summary", "prediction_data_summary"]
+  performance_reports: ["model_evaluation", "cross_validation_results"] 
