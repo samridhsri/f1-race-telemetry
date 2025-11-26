@@ -1,0 +1,16 @@
+streamlit
+pandas
+numpy
+plotly
+pymongo
+requests
+python-dotenv
+matplotlib
+seaborn
+fastf1>=3.0.0
+pyspark==3.5.1
+py4j>=0.10.9.7
+python-dateutil
+mlflow
+psycopg2-binary
+scikit-learn
