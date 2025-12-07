@@ -45,6 +45,12 @@ def get_mongodb_client():
 # Function to fetch telemetry data for a specific session
 def fetch_session_telemetry(year: int, event: str, session_type: str) -> pd.DataFrame:
     try:
+        # Create progress indicator
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        status_text.text("Connecting to database...")
+        progress_bar.progress(0.1)
+        
         client = get_mongodb_client()
         db = client[DB_NAME]
         telemetry_collection = db["telemetry"]
@@ -52,16 +58,45 @@ def fetch_session_telemetry(year: int, event: str, session_type: str) -> pd.Data
         # Query MongoDB for telemetry data (lap-level data)
         query = {"Year": year, "GrandPrix": event, "SessionType": session_type}
 
-        # Select all available fields - don't use projection to see what's actually there
-        cursor = telemetry_collection.find(query)
-        data = list(cursor)
+        # Count total documents for progress tracking
+        status_text.text("Counting records...")
+        progress_bar.progress(0.2)
+        total_count = telemetry_collection.count_documents(query)
+        
+        if total_count == 0:
+            progress_bar.empty()
+            status_text.empty()
+            return pd.DataFrame()
+        
+        status_text.text(f"Fetching {total_count:,} telemetry records...")
+        progress_bar.progress(0.3)
+
+        # Projection to only fetch needed fields for better performance
+        projection = {
+            "LapNumber": 1, "Position": 1, "Driver": 1, "Team": 1, "TeamID": 1,
+            "LapTime": 1, "Compound": 1, "Stint": 1, "TyreLife": 1, "Time": 1,
+            "DriverNumber": 1, "AverageSpeed": 1, "_id": 0
+        }
+        
+        # Fetch data in batches for large datasets
+        batch_size = 10000
+        all_data = []
+        cursor = telemetry_collection.find(query, projection)
+        
+        fetched = 0
+        for doc in cursor:
+            all_data.append(doc)
+            fetched += 1
+            if fetched % 1000 == 0:
+                progress = 0.3 + (fetched / total_count) * 0.6
+                progress_bar.progress(min(progress, 0.9))
+                status_text.text(f"Fetching records... {fetched:,}/{total_count:,}")
 
         # Convert to DataFrame
-        if data:
-            df = pd.DataFrame(data)
-            # Remove _id column
-            if "_id" in df.columns:
-                df = df.drop("_id", axis=1)
+        if all_data:
+            status_text.text("Processing data...")
+            progress_bar.progress(0.95)
+            df = pd.DataFrame(all_data)
             
             # Check if Position column exists and has data
             if "Position" not in df.columns or (df["Position"].isna().all() if "Position" in df.columns else True):
@@ -117,10 +152,25 @@ def fetch_session_telemetry(year: int, event: str, session_type: str) -> pd.Data
             available_fields = [f for f in desired_fields if f in df.columns]
             df = df[available_fields]
             
+            status_text.text(f"✓ Loaded {len(df):,} records")
+            progress_bar.progress(1.0)
+            
+            # Clear progress indicators after a brief moment
+            import time
+            time.sleep(0.3)
+            progress_bar.empty()
+            status_text.empty()
+            
             return df
         else:
+            progress_bar.empty()
+            status_text.empty()
             return pd.DataFrame()
     except Exception as e:
+        if 'progress_bar' in locals():
+            progress_bar.empty()
+        if 'status_text' in locals():
+            status_text.empty()
         st.error(f"Error fetching telemetry data: {e}")
         return pd.DataFrame()
 

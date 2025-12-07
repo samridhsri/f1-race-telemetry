@@ -18,7 +18,7 @@ def show_race_predictions():
     """Display race prediction interface"""
     st.title("F1 Race Predictions")
     st.write(
-        "Make predictions for 2025 F1 races based on historical data from 2022-2024"
+        "Make predictions for 2026 F1 races based on historical data from 2023-2025"
     )
 
     # Initialize session state
@@ -33,18 +33,33 @@ def show_race_predictions():
     if "saved_predictions" not in st.session_state:
         st.session_state.saved_predictions = []
 
-    # Fetch 2025 events on load
+    # Fetch 2026 events on load
     if not st.session_state.prediction_events:
         fetch_prediction_events()
 
     # Show prediction configuration section
     show_ml_prediction_section()
 
-    # If ML model predictions exist, display them (this will show the full race results)
-    if st.session_state.model_predictions is not None and not st.session_state.model_predictions.empty:
-        display_ml_prediction_results(st.session_state.model_predictions)
-    elif st.session_state.model_predictions is not None:
-        st.warning("Model predictions are empty. Please try running the prediction again.")
+    # Add a separator
+    st.markdown("---")
+
+    # Check and display predictions
+    if st.session_state.model_predictions is not None:
+        if not st.session_state.model_predictions.empty:
+            # Display the full prediction results
+            st.markdown("## 📊 Prediction Results")
+
+            # Add debug info in expander
+            with st.expander("🔍 Prediction Data Info"):
+                st.write(f"**Total drivers predicted:** {len(st.session_state.model_predictions)}")
+                st.write(f"**Columns available:** {', '.join(st.session_state.model_predictions.columns.tolist())}")
+                st.write(f"**Grand Prix:** {st.session_state.model_predictions['GrandPrix'].iloc[0] if 'GrandPrix' in st.session_state.model_predictions.columns else 'Unknown'}")
+                st.write(f"**Prediction year:** {st.session_state.model_predictions['Year'].iloc[0] if 'Year' in st.session_state.model_predictions.columns else 'Unknown'}")
+
+            display_ml_prediction_results(st.session_state.model_predictions)
+        else:
+            st.warning("⚠️ Model predictions are empty. Please try running the prediction again.")
+            st.info("This may happen if there's no data available for the selected race. Try a different race or check the logs.")
     else:
         # Show info about what will be displayed
         st.info("💡 **What you'll see after running a prediction:**")
@@ -71,7 +86,7 @@ def show_ml_prediction_section():
         # Source year selection for ML model
         source_years_ml = st.text_input(
             "Source Years for Training",
-            value="2022,2023,2024",
+            value="2023,2024,2025",
             help="Historical years to use for model training",
             key="ml_years",
         )
@@ -101,25 +116,37 @@ def show_ml_prediction_section():
 
     # Event selection for ML prediction
     if st.session_state.prediction_events:
+        # Check what year we got events for
+        event_year = st.session_state.prediction_events[0]["year"] if st.session_state.prediction_events else 2026
+
         event_options = {
             f"{event['name']} ({event['date']})": event["name"]
             for event in st.session_state.prediction_events
         }
 
+        # Update label based on actual year
+        label_text = f"Select {event_year} Race Event to Predict"
         selected_ml_event_display = st.selectbox(
-            "Select 2025 Race Event to Predict",
+            label_text,
             options=list(event_options.keys()),
             key="ml_event",
         )
+
+        # Show warning if using 2025 instead of 2026
+        if event_year == 2025:
+            st.warning(
+                f"⚠️ Note: 2026 F1 schedule is not yet available in FastF1. "
+                f"Showing {event_year} races instead. You can still predict outcomes using 2026 driver lineup with {event_year} tracks."
+            )
 
         if selected_ml_event_display:
             selected_ml_event = event_options[selected_ml_event_display]
 
             # Show some informational text
             st.info(
-                """
-            The prediction model directly loads historical FastF1 data for telemetry, weather, and race results to train a 
-            Gradient Boosting model. It predicts final positions for the 2025 drivers using the 2025 team lineup.
+                f"""
+            The prediction model directly loads historical FastF1 data for telemetry, weather, and race results to train a
+            Gradient Boosting model. It predicts final positions for the 2026 drivers using the 2026 team lineup at {event_year} tracks.
             """
             )
 
@@ -132,39 +159,95 @@ def show_ml_prediction_section():
             )
 
             if predict_button:
-                with st.spinner(
-                    "Loading historical data, training model, and generating predictions..."
-                ):
-                    st.session_state.model_running = True
+                st.session_state.model_running = True
+
+                # Track start time
+                start_time = time.time()
+
+                # Show initial message with status widget
+                with st.status("🏎️ Running race prediction...", expanded=True) as status:
+                    st.write("⏱️ **Estimated time:** 2-5 minutes (depending on data size and cache)")
+                    st.write("")
+                    st.write("📊 **This process includes:**")
+                    st.write("- Fetching historical F1 data from FastF1")
+                    st.write("- Training Gradient Boosting model")
+                    st.write("- Generating 2026 driver predictions")
+                    st.write("- Logging experiment to MLflow")
+                    st.write("")
+                    st.warning("⚠️ **Please wait** - Do not refresh the page! The prediction is running.")
+
                     try:
-                        # Run the ML prediction
+                        # Run the ML prediction (this will take several minutes - SYNCHRONOUS)
                         predictions = race_prediction_model.run_prediction_model(
                             selected_ml_event, source_years_ml
                         )
+
+                        # Calculate total time
+                        total_time = time.time() - start_time
+                        total_mins = int(total_time // 60)
+                        total_secs = int(total_time % 60)
+
                         st.session_state.model_running = False
 
                         if predictions is not None and not predictions.empty:
                             st.session_state.model_predictions = predictions
-                            st.success(
-                                f"Successfully generated predictions for {selected_ml_event}"
+
+                            status.update(
+                                label=f"✓ Prediction complete! (Completed in {total_mins}m {total_secs}s)",
+                                state="complete",
+                                expanded=False
                             )
+
+                            st.success(
+                                f"✓ Successfully generated predictions for {selected_ml_event}! "
+                                f"Predicted outcomes for {len(predictions)} drivers. "
+                                f"(Completed in {total_mins}m {total_secs}s)"
+                            )
+
                             # Force a rerun to display the results immediately
-                            st.experimental_rerun()
+                            time.sleep(0.5)
+                            st.rerun()
                         else:
+                            status.update(
+                                label="❌ Prediction failed - no data returned",
+                                state="error"
+                            )
                             st.error(
-                                "Failed to generate predictions. Check logs for details."
+                                "Failed to generate predictions. The model returned no data. "
+                                "This might be because:\n"
+                                "- No historical data available for this race\n"
+                                "- FastF1 API error\n"
+                                "- Model training failed\n\n"
+                                "Check the MLflow UI for detailed logs."
                             )
                     except Exception as e:
                         st.session_state.model_running = False
+
+                        total_time = time.time() - start_time
+                        total_mins = int(total_time // 60)
+                        total_secs = int(total_time % 60)
+
+                        status.update(
+                            label=f"❌ Error after {total_mins}m {total_secs}s",
+                            state="error"
+                        )
+
                         st.error(f"Error during prediction: {str(e)}")
-                        st.write("**Debug Info:**")
-                        st.write(f"Selected event: {selected_ml_event}")
-                        st.write(f"Source years: {source_years_ml}")
-                        import traceback
-                        st.text(traceback.format_exc())
+
+                        with st.expander("**Debug Information**"):
+                            st.write(f"**Selected event:** {selected_ml_event}")
+                            st.write(f"**Source years:** {source_years_ml}")
+                            st.write(f"**Event year:** {event_year}")
+                            st.write(f"**Run time:** {total_mins}m {total_secs}s")
+                            st.write("")
+                            st.write("**Stack trace:**")
+                            import traceback
+                            st.code(traceback.format_exc())
+                            st.write("")
+                            st.info("💡 Check the MLflow UI at http://localhost:5001 for detailed experiment logs.")
     else:
         st.warning(
-            "No 2025 events available. Click the refresh button to fetch events."
+            "No 2026 events available. Click the refresh button to fetch events."
         )
 
         # Refresh button
@@ -216,7 +299,7 @@ def display_ml_prediction_results(predictions_df):
     
     # Add a clear header with success indicator
     st.success(f"🏁 Race Prediction Results Generated!")
-    st.subheader(f"Race Prediction: {predictions_df['GrandPrix'].iloc[0]} 2025")
+    st.subheader(f"Race Prediction: {predictions_df['GrandPrix'].iloc[0]} 2026")
     st.write(f"**Generated:** {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}")
     st.write(f"**Drivers:** {len(predictions_df)} drivers predicted")
 
@@ -727,7 +810,7 @@ def display_ml_prediction_results(predictions_df):
 
 
 def fetch_prediction_events():
-    """Fetch available 2025 events for prediction"""
+    """Fetch available 2026 events for prediction"""
     try:
         st.session_state.prediction_loading = True
 

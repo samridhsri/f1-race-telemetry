@@ -181,13 +181,25 @@ def get_driver_fastest_lap(
 
 # Function to get telemetry data for a specific lap
 def get_lap_telemetry(
-    year: int, event: str, session_type: str, driver: str, lap_number: int
+    year: int, event: str, session_type: str, driver: str, lap_number: int, show_progress: bool = False
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     try:
+        progress_bar = None
+        status_text = None
+        if show_progress:
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            status_text.text(f"Fetching telemetry for {driver} lap {lap_number}...")
+            progress_bar.progress(0.1)
+        
         client = get_mongodb_client()
         db = client[DB_NAME]
 
         # Get driver number from telemetry collection
+        if show_progress:
+            status_text.text("Looking up driver information...")
+            progress_bar.progress(0.2)
+        
         telemetry_collection = db["telemetry"]
         driver_info = telemetry_collection.find_one(
             {
@@ -200,11 +212,18 @@ def get_lap_telemetry(
         )
 
         if not driver_info:
+            if show_progress:
+                progress_bar.empty()
+                status_text.empty()
             return pd.DataFrame(), pd.DataFrame()
 
         driver_number = driver_info.get("DriverNumber")
 
         # Get car position data for this lap
+        if show_progress:
+            status_text.text(f"Fetching position data for lap {lap_number}...")
+            progress_bar.progress(0.4)
+        
         position_collection = db["car_position"]
         position_query = {
             "Year": year,
@@ -214,9 +233,16 @@ def get_lap_telemetry(
             "LapNumber": lap_number,
         }
 
-        position_data = list(position_collection.find(position_query))
+        # Count and fetch with projection
+        position_count = position_collection.count_documents(position_query)
+        position_projection = {"X": 1, "Y": 1, "Z": 1, "Time": 1, "_id": 0}
+        position_data = list(position_collection.find(position_query, position_projection))
 
         # Get car telemetry data for this lap
+        if show_progress:
+            status_text.text(f"Fetching telemetry data for lap {lap_number}... ({position_count} position points)")
+            progress_bar.progress(0.7)
+        
         telemetry_collection = db["car_telemetry"]
         telemetry_query = {
             "Year": year,
@@ -226,7 +252,18 @@ def get_lap_telemetry(
             "LapNumber": lap_number,
         }
 
-        telemetry_data = list(telemetry_collection.find(telemetry_query))
+        # Count and fetch with projection
+        telemetry_count = telemetry_collection.count_documents(telemetry_query)
+        telemetry_projection = {"Speed": 1, "Time": 1, "RPM": 1, "Throttle": 1, "Brake": 1, "_id": 0}
+        telemetry_data = list(telemetry_collection.find(telemetry_query, telemetry_projection))
+        
+        if show_progress:
+            status_text.text(f"✓ Loaded {len(position_data)} position points, {len(telemetry_data)} telemetry points")
+            progress_bar.progress(1.0)
+            import time
+            time.sleep(0.2)
+            progress_bar.empty()
+            status_text.empty()
 
         # Convert to DataFrames
         position_df = pd.DataFrame(position_data)
@@ -448,7 +485,7 @@ def show_track_speed_heatmap(year: int, event: str, session_type: str):
 
         # Get telemetry for the selected lap
         position_df, telemetry_df = get_lap_telemetry(
-            year, event, session_type, selected_driver["Driver"], selected_lap
+            year, event, session_type, selected_driver["Driver"], selected_lap, show_progress=True
         )
 
         # Merge position and telemetry data

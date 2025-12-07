@@ -110,6 +110,12 @@ def check_race_results_available(year: int, event: str) -> bool:
 # Function to fetch race results for a specific session
 def fetch_race_results(year: int, event: str) -> pd.DataFrame:
     try:
+        # Create progress indicator
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        status_text.text("Connecting to database...")
+        progress_bar.progress(0.1)
+        
         client = get_mongodb_client()
         db = client[DB_NAME]
         results_collection = db["race_results"]
@@ -117,22 +123,48 @@ def fetch_race_results(year: int, event: str) -> pd.DataFrame:
         # Query MongoDB for race results
         query = {"Year": year, "GrandPrix": event, "SessionType": "Race"}
 
+        # Count documents for progress
+        status_text.text("Checking for race results...")
+        progress_bar.progress(0.2)
+        count = results_collection.count_documents(query)
+
+        # Projection to only fetch needed fields
+        projection = {
+            "Driver": 1, "DriverNumber": 1, "Position": 1, "ClassifiedPosition": 1,
+            "GridPosition": 1, "Q1": 1, "Q2": 1, "Q3": 1, "Time": 1, "Status": 1,
+            "Points": 1, "TeamName": 1, "Team": 1, "_id": 0
+        }
+
         # Fetch the data and convert to a list of dictionaries
-        cursor = results_collection.find(query)
+        status_text.text(f"Fetching race results... ({count} records)")
+        progress_bar.progress(0.4)
+        cursor = results_collection.find(query, projection)
         data = list(cursor)
 
         # Convert to DataFrame
         if data:
+            status_text.text("Processing race results...")
+            progress_bar.progress(0.8)
             df = pd.DataFrame(data)
-            # Remove _id column
-            if "_id" in df.columns:
-                df = df.drop("_id", axis=1)
 
             # Clean and format the data
             df = process_race_results(df)
+            
+            status_text.text(f"✓ Loaded {len(df)} race results")
+            progress_bar.progress(1.0)
+            
+            # Clear progress indicators after a brief moment
+            import time
+            time.sleep(0.3)
+            progress_bar.empty()
+            status_text.empty()
+            
             return df
         else:
             # If no data in race_results, try to look in the telemetry collection for position data
+            status_text.text("No race results found, checking telemetry data...")
+            progress_bar.progress(0.5)
+            
             telemetry_collection = db["telemetry"]
             telemetry_query = {
                 "Year": year,
@@ -141,16 +173,45 @@ def fetch_race_results(year: int, event: str) -> pd.DataFrame:
                 "LapNumber": {"$exists": True},
             }
 
-            telemetry_cursor = telemetry_collection.find(telemetry_query)
+            # Count telemetry records
+            telemetry_count = telemetry_collection.count_documents(telemetry_query)
+            status_text.text(f"Fetching telemetry data... ({telemetry_count:,} records)")
+            progress_bar.progress(0.6)
+
+            # Projection for telemetry query
+            telemetry_projection = {
+                "Driver": 1, "DriverNumber": 1, "LapNumber": 1, "Position": 1,
+                "Team": 1, "TeamID": 1, "_id": 0
+            }
+
+            telemetry_cursor = telemetry_collection.find(telemetry_query, telemetry_projection)
             telemetry_data = list(telemetry_cursor)
 
             if telemetry_data:
+                status_text.text("Processing telemetry data into results...")
+                progress_bar.progress(0.9)
                 # Process telemetry data to get race results
-                return process_telemetry_for_results(telemetry_data)
+                result_df = process_telemetry_for_results(telemetry_data)
+                
+                status_text.text(f"✓ Generated {len(result_df)} results from telemetry")
+                progress_bar.progress(1.0)
+                
+                import time
+                time.sleep(0.3)
+                progress_bar.empty()
+                status_text.empty()
+                
+                return result_df
 
             # If still no data, return empty DataFrame
+            progress_bar.empty()
+            status_text.empty()
             return pd.DataFrame()
     except Exception as e:
+        if 'progress_bar' in locals():
+            progress_bar.empty()
+        if 'status_text' in locals():
+            status_text.empty()
         st.error(f"Error fetching race results: {e}")
         return pd.DataFrame()
 

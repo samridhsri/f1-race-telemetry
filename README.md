@@ -1,16 +1,124 @@
-# F1 RaceFlux - Formula 1 Data Pipeline
+# F1 Race Flux
 
-A comprehensive real-time Formula 1 data processing pipeline with advanced ML lifecycle management, analytics, and prediction capabilities. This project collects, processes, and visualizes F1 telemetry data using a modern data engineering and MLOps stack with MLflow integration.
+## Overview
+This repository develops a real-time Formula 1 data analytics system that processes live telemetry data through a streaming pipeline and presents interactive dashboards for race analysis, driver performance comparison, and ML-powered race predictions.
 
-## How to Run
+## Repository Structure
 
-1. Ensure Docker and Docker Compose are installed
-2. Start all services: `docker-compose up -d`
-3. Access the applications:
-   - Streamlit Dashboard: http://localhost:8501
-   - MLflow Tracking UI: http://localhost:5001
-   - API Documentation: http://localhost:8000/docs
+### `api/`
+FastAPI backend for data fetching and REST endpoints.
 
-## What It Does
+### `consumer/`
+Apache Spark streaming processors for real-time data transformation:
+* Stream Processor: `f1_streaming_processor.py`
+* Utilities: `kafka_spark/safe_utils.py`
 
-F1 RaceFlux is a complete data pipeline that captures real-time Formula 1 race telemetry data, processes it using Apache Spark, stores it in MongoDB, and provides RESTful API access. The system includes an interactive Streamlit dashboard for data visualization and race analytics, along with MLflow integration for machine learning model training, experiment tracking, and race outcome predictions. The pipeline uses Kafka for real-time data streaming, enabling scalable processing of F1 telemetry data with advanced analytics including driver performance comparison, track speed heatmaps, lap time analysis, and race predictions using gradient boosting models.
+### `producer/`
+Data fetching logic from FastF1 API:
+* Main Fetcher: `fetch_f1_data.py`
+
+### `streamlit/`
+Interactive dashboard applications:
+* Driver Analysis: `driver_analysis.py`
+* Lap Times: `lap_times.py`
+* Position Tracking: `position_tracking.py`
+* 3D Simulation: `driver_simulation.py`
+* Race Results: `race_results.py`
+* Weather Data: `weather_data.py`
+* ML Predictions: `race_prediction_model.py`
+
+### `mlflow/`
+Machine learning experiment tracking configuration.
+
+## Technologies
+Utilizes Docker, Apache Kafka, Apache Spark, MongoDB, PostgreSQL, FastAPI, Streamlit, and MLflow. Python libraries include FastF1, Pandas, NumPy, Scikit-learn, and PySpark.
+
+## Getting Started
+To set up this project locally, run the following commands:
+
+```bash
+git clone https://github.com/yourusername/f1-race-flux.git
+cd f1-race-flux
+```
+
+Ensure Docker and Docker Compose are installed with at least 8GB RAM available.
+
+## Starting the System
+
+**Windows:**
+```bash
+deploy.bat
+```
+
+**Linux/Mac:**
+```bash
+chmod +x deploy.sh
+./deploy.sh
+```
+
+This will start all 8 Docker services (Kafka, Spark, MongoDB, MLflow, API, Streamlit dashboards).
+
+## Accessing the Applications
+
+Once all services are running:
+
+* **API Documentation**: http://localhost:8000/docs
+* **Driver Analysis Dashboard**: http://localhost:8501
+* **Lap Times Dashboard**: http://localhost:8502
+* **Position Tracking Dashboard**: http://localhost:8503
+* **3D Driver Simulation**: http://localhost:8504
+* **Race Results Dashboard**: http://localhost:8505
+* **Weather Data Dashboard**: http://localhost:8506
+* **MLflow UI**: http://localhost:5001
+
+## Running the Pipeline
+
+1. **Fetch Race Data**: Navigate to http://localhost:8000/docs and use the `/fetch_and_stream` endpoint:
+```json
+{
+  "year": 2024,
+  "event": "Monaco",
+  "session_type": "Race"
+}
+```
+
+2. **View Real-Time Processing**: Data flows through Kafka → Spark → MongoDB automatically. Monitor progress in Docker logs:
+```bash
+docker-compose logs -f spark-processor
+```
+
+3. **Analyze in Dashboards**: Open any Streamlit dashboard (ports 8501-8506) to visualize the processed data.
+
+4. **Run ML Predictions**: 
+   * Open the main dashboard at http://localhost:8501
+   * Navigate to "Race Predictions" tab
+   * Select target race (e.g., 2025 Bahrain) and training years (e.g., 2022-2024)
+   * Click "Run Prediction Model" to generate race outcome predictions
+
+5. **Track Experiments**: View ML experiments, model versions, and metrics at http://localhost:5001
+
+## Architecture Flow
+
+```
+FastF1 API → FastAPI → Kafka (6 topics) → Spark Streaming → MongoDB (6 collections) → Streamlit Dashboards
+                                                                      ↓
+                                                               MLflow Tracking
+```
+
+## Troubleshooting
+
+**Services won't start:**
+```bash
+docker-compose down
+docker-compose up -d
+docker-compose logs [service-name]
+```
+
+**No data in dashboards:**
+* Ensure you've fetched data via API first
+* Check Kafka topics: `docker exec -it kafka kafka-topics --list --bootstrap-server localhost:9092`
+* Verify MongoDB data: `docker exec -it mongodb mongosh`
+
+**Memory issues:**
+* Increase Docker Desktop memory allocation (Settings → Resources)
+* Reduce memory limits in `docker-compose.yml`

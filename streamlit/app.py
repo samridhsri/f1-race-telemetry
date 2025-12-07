@@ -153,8 +153,17 @@ def fetch_available_races():
     """Fetch all available races from the API"""
     try:
         st.session_state.loading = True
+        
+        # Create progress indicator
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        status_text.text("Connecting to API...")
+        progress_bar.progress(0.1)
 
-        response = requests.get(f"{API_BASE_URL}/available-races", timeout=10)
+        response = requests.get(f"{API_BASE_URL}/available-races", timeout=30)
+        
+        status_text.text("Processing race data...")
+        progress_bar.progress(0.5)
 
         if response.status_code != 200:
             error_message = f"API error: {response.status_code}"
@@ -164,21 +173,48 @@ def fetch_available_races():
             except:
                 error_message += " - Could not parse error details"
 
+            progress_bar.empty()
+            status_text.empty()
             st.error(error_message)
             return False
 
+        status_text.text("Loading race information...")
+        progress_bar.progress(0.8)
+        
         races = response.json()
         st.session_state.available_races = races
+        
+        status_text.text(f"✓ Loaded {len(races)} races")
+        progress_bar.progress(1.0)
+        
+        # Clear progress indicators after a brief moment
+        import time
+        time.sleep(0.5)
+        progress_bar.empty()
+        status_text.empty()
+        
         return True
     except requests.exceptions.ConnectionError:
+        if 'progress_bar' in locals():
+            progress_bar.empty()
+        if 'status_text' in locals():
+            status_text.empty()
         st.error(
             f"Failed to connect to API at {API_BASE_URL}. Check if API service is running."
         )
         return False
     except requests.exceptions.Timeout:
+        if 'progress_bar' in locals():
+            progress_bar.empty()
+        if 'status_text' in locals():
+            status_text.empty()
         st.error(f"API request timed out. The API service might be overloaded.")
         return False
     except Exception as e:
+        if 'progress_bar' in locals():
+            progress_bar.empty()
+        if 'status_text' in locals():
+            status_text.empty()
         st.error(f"Failed to fetch available races: {e}")
         return False
     finally:
@@ -196,7 +232,17 @@ def fetch_sessions(year, race_name):
             st.session_state.available_sessions = []
             return True
 
-        response = requests.get(f"{API_BASE_URL}/sessions/{year}/{race_name}")
+        # Create progress indicator
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        status_text.text(f"Fetching sessions for {race_name} {year}...")
+        progress_bar.progress(0.3)
+
+        response = requests.get(f"{API_BASE_URL}/sessions/{year}/{race_name}", timeout=30)
+        
+        status_text.text("Processing session data...")
+        progress_bar.progress(0.7)
+        
         if response.status_code != 200:
             error_message = f"API error: {response.status_code}"
             try:
@@ -205,13 +251,29 @@ def fetch_sessions(year, race_name):
             except:
                 error_message += " - Could not parse error details"
 
+            progress_bar.empty()
+            status_text.empty()
             st.error(error_message)
             return False
 
         data = response.json()
         st.session_state.available_sessions = data["sessions"]
+        
+        status_text.text(f"✓ Found {len(data['sessions'])} sessions")
+        progress_bar.progress(1.0)
+        
+        # Clear progress indicators after a brief moment
+        import time
+        time.sleep(0.3)
+        progress_bar.empty()
+        status_text.empty()
+        
         return True
     except Exception as e:
+        if 'progress_bar' in locals():
+            progress_bar.empty()
+        if 'status_text' in locals():
+            status_text.empty()
         st.error(f"Failed to fetch sessions: {e}")
         return False
     finally:
@@ -394,8 +456,8 @@ if st.session_state.mode == "Data Visualization":
             '<div class="card-title">1. Select Year</div>', unsafe_allow_html=True
         )
 
-        # Fixed years from 2022-2025
-        years = list(range(2022, 2026))
+        # Fixed years from 2022-2026 (includes 2025 historical data and 2026 for predictions)
+        years = list(range(2022, 2027))
         selected_year = st.selectbox(
             "Select a year", years, label_visibility="collapsed"
         )

@@ -122,11 +122,19 @@ def get_available_drivers(year: int, event: str, session_type: str) -> List[Dict
 
 
 # Function to get lap times for a driver
-def get_driver_lap_times(year: int, event: str, session_type: str, driver: str) -> pd.DataFrame:
+def get_driver_lap_times(year: int, event: str, session_type: str, driver: str, show_progress: bool = False) -> pd.DataFrame:
     """
     Fetch lap times for a specific driver with defensive handling for missing fields
     """
     try:
+        progress_bar = None
+        status_text = None
+        if show_progress:
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            status_text.text(f"Fetching lap times for {driver}...")
+            progress_bar.progress(0.2)
+        
         client = get_mongodb_client()
         db = client[DB_NAME]
         telemetry_collection = db["telemetry"]
@@ -138,6 +146,14 @@ def get_driver_lap_times(year: int, event: str, session_type: str, driver: str) 
             "SessionType": session_type,
             "Driver": driver,
         }
+
+        # Count documents for progress
+        if show_progress:
+            status_text.text(f"Counting records for {driver}...")
+            progress_bar.progress(0.4)
+            count = telemetry_collection.count_documents(query)
+            status_text.text(f"Fetching {count} lap records for {driver}...")
+            progress_bar.progress(0.6)
 
         # Projection to get relevant fields
         projection = {
@@ -153,7 +169,17 @@ def get_driver_lap_times(year: int, event: str, session_type: str, driver: str) 
 
         # Fetch data
         cursor = telemetry_collection.find(query, projection).sort("LapNumber", 1)
+        if show_progress:
+            progress_bar.progress(0.8)
         df = pd.DataFrame(list(cursor))
+        
+        if show_progress:
+            status_text.text(f"✓ Loaded {len(df)} lap records for {driver}")
+            progress_bar.progress(1.0)
+            import time
+            time.sleep(0.2)
+            progress_bar.empty()
+            status_text.empty()
 
         # CRITICAL FIX: Handle missing LapTimeSeconds field
         if not df.empty:
@@ -312,59 +338,80 @@ def format_lap_time(seconds):
 
 # Function to generate lap time comparison visualization and tables
 def generate_lap_comparison(year: int, event: str, session_type: str, driver1, driver2):
-    with st.spinner("Generating lap time comparison..."):
-        # Get lap times for both drivers
-        driver1_laps = get_driver_lap_times(
-            year, event, session_type, driver1["Driver"]
-        )
-        driver2_laps = get_driver_lap_times(
-            year, event, session_type, driver2["Driver"]
-        )
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    status_text.text("Starting lap time comparison...")
+    progress_bar.progress(0.1)
+    
+    # Get lap times for both drivers
+    status_text.text(f"Fetching lap times for {driver1['Driver']}...")
+    progress_bar.progress(0.2)
+    driver1_laps = get_driver_lap_times(
+        year, event, session_type, driver1["Driver"], show_progress=False
+    )
+    
+    status_text.text(f"Fetching lap times for {driver2['Driver']}...")
+    progress_bar.progress(0.6)
+    driver2_laps = get_driver_lap_times(
+        year, event, session_type, driver2["Driver"], show_progress=False
+    )
+    
+    status_text.text("Processing lap time data...")
+    progress_bar.progress(0.8)
 
-        if driver1_laps.empty or driver2_laps.empty:
-            st.error("Unable to fetch lap times for one or both drivers")
-            return
-        
-        if "LapTimeSeconds" not in driver1_laps.columns:
-            st.error(f"❌ LapTimeSeconds field missing for {driver1['Driver']}")
-            return
-        
-        if "LapTimeSeconds" not in driver2_laps.columns:
-            st.error(f"❌ LapTimeSeconds field missing for {driver2['Driver']}")
-            return
+    if driver1_laps.empty or driver2_laps.empty:
+        progress_bar.empty()
+        status_text.empty()
+        st.error("Unable to fetch lap times for one or both drivers")
+        return
+    
+    if "LapTimeSeconds" not in driver1_laps.columns:
+        progress_bar.empty()
+        status_text.empty()
+        st.error(f"❌ LapTimeSeconds field missing for {driver1['Driver']}")
+        return
+    
+    if "LapTimeSeconds" not in driver2_laps.columns:
+        progress_bar.empty()
+        status_text.empty()
+        st.error(f"❌ LapTimeSeconds field missing for {driver2['Driver']}")
+        return
 
-        # Convert lap times from seconds to minutes for better Y-axis display
-        driver1_laps["LapTimeMinutes"] = driver1_laps["LapTimeSeconds"] / 60
-        driver2_laps["LapTimeMinutes"] = driver2_laps["LapTimeSeconds"] / 60
+    # Convert lap times from seconds to minutes for better Y-axis display
+    driver1_laps["LapTimeMinutes"] = driver1_laps["LapTimeSeconds"] / 60
+    driver2_laps["LapTimeMinutes"] = driver2_laps["LapTimeSeconds"] / 60
 
-        # Add driver name for legend
-        driver1_laps["Driver"] = driver1["DisplayName"]
-        driver2_laps["Driver"] = driver2["DisplayName"]
+    # Add driver name for legend
+    driver1_laps["Driver"] = driver1["DisplayName"]
+    driver2_laps["Driver"] = driver2["DisplayName"]
 
-        # Get team colors
-        driver1_color = get_team_color(
-            team_id=(
-                driver1_laps["TeamID"].iloc[0]
-                if "TeamID" in driver1_laps.columns
-                else None
-            ),
-            team_name=driver1["Team"],
-        )
+    # Get team colors
+    driver1_color = get_team_color(
+        team_id=(
+            driver1_laps["TeamID"].iloc[0]
+            if "TeamID" in driver1_laps.columns
+            else None
+        ),
+        team_name=driver1["Team"],
+    )
 
-        driver2_color = get_team_color(
-            team_id=(
-                driver2_laps["TeamID"].iloc[0]
-                if "TeamID" in driver2_laps.columns
-                else None
-            ),
-            team_name=driver2["Team"],
-        )
+    driver2_color = get_team_color(
+        team_id=(
+            driver2_laps["TeamID"].iloc[0]
+            if "TeamID" in driver2_laps.columns
+            else None
+        ),
+        team_name=driver2["Team"],
+    )
 
-        # Create the plot
-        fig = go.Figure()
+    status_text.text("Generating visualization...")
+    progress_bar.progress(0.9)
 
-        # Add traces for each driver
-        fig.add_trace(
+    # Create the plot
+    fig = go.Figure()
+
+    # Add traces for each driver
+    fig.add_trace(
             go.Scatter(
                 x=driver1_laps["LapNumber"],
                 y=driver1_laps["LapTimeMinutes"],
@@ -375,184 +422,188 @@ def generate_lap_comparison(year: int, event: str, session_type: str, driver1, d
             )
         )
 
-        fig.add_trace(
-            go.Scatter(
-                x=driver2_laps["LapNumber"],
-                y=driver2_laps["LapTimeMinutes"],
-                mode="lines+markers",
-                name=driver2["DisplayName"],
-                line=dict(color=driver2_color, width=2),
-                marker=dict(size=8),
-            )
+    fig.add_trace(
+        go.Scatter(
+            x=driver2_laps["LapNumber"],
+            y=driver2_laps["LapTimeMinutes"],
+            mode="lines+markers",
+            name=driver2["DisplayName"],
+            line=dict(color=driver2_color, width=2),
+            marker=dict(size=8),
         )
+    )
 
-        # Add highlighting for personal best laps if available
-        if "IsPersonalBest" in driver1_laps.columns:
-            best_laps1 = driver1_laps[driver1_laps["IsPersonalBest"] == True]
-            if not best_laps1.empty:
-                fig.add_trace(
-                    go.Scatter(
-                        x=best_laps1["LapNumber"],
-                        y=best_laps1["LapTimeMinutes"],
-                        mode="markers",
-                        name=f"{driver1['Driver']} Personal Best",
-                        marker=dict(size=12, symbol="star", color=driver1_color),
-                    )
+    # Add highlighting for personal best laps if available
+    if "IsPersonalBest" in driver1_laps.columns:
+        best_laps1 = driver1_laps[driver1_laps["IsPersonalBest"] == True]
+        if not best_laps1.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=best_laps1["LapNumber"],
+                    y=best_laps1["LapTimeMinutes"],
+                    mode="markers",
+                    name=f"{driver1['Driver']} Personal Best",
+                    marker=dict(size=12, symbol="star", color=driver1_color),
                 )
+            )
 
-        if "IsPersonalBest" in driver2_laps.columns:
-            best_laps2 = driver2_laps[driver2_laps["IsPersonalBest"] == True]
-            if not best_laps2.empty:
-                fig.add_trace(
-                    go.Scatter(
-                        x=best_laps2["LapNumber"],
-                        y=best_laps2["LapTimeMinutes"],
-                        mode="markers",
-                        name=f"{driver2['Driver']} Personal Best",
-                        marker=dict(size=12, symbol="star", color=driver2_color),
-                    )
+    if "IsPersonalBest" in driver2_laps.columns:
+        best_laps2 = driver2_laps[driver2_laps["IsPersonalBest"] == True]
+        if not best_laps2.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=best_laps2["LapNumber"],
+                    y=best_laps2["LapTimeMinutes"],
+                    mode="markers",
+                    name=f"{driver2['Driver']} Personal Best",
+                    marker=dict(size=12, symbol="star", color=driver2_color),
                 )
-
-        # Update layout for better visualization
-        fig.update_layout(
-            title=f"Lap Time Comparison: {driver1['Driver']} vs {driver2['Driver']}",
-            xaxis_title="Lap Number",
-            yaxis_title="Lap Time (minutes)",
-            template="plotly_dark",
-            hovermode="x unified",
-            legend=dict(
-                orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5
-            ),
-            # Format y-axis to show minutes:seconds
-            yaxis=dict(tickformat=".2f"),
-        )
-
-        # Adjust x-axis to show integer lap numbers
-        fig.update_xaxes(dtick=1, tickmode="linear")  # Tick every 1 lap
-
-        # Add custom hover information
-        fig.update_traces(
-            hovertemplate="<b>Lap %{x}</b><br>Time: %{y:.2f} min<extra></extra>"
-        )
-
-        # Show the plot
-        st.plotly_chart(fig, use_container_width=True)
-
-        # Add table showing lap time details
-        st.subheader("Lap Time Details")
-
-        # Prepare data for table
-        merged_laps = pd.merge(
-            driver1_laps[["LapNumber", "LapTimeSeconds"]].rename(
-                columns={"LapTimeSeconds": f"{driver1['Driver']}_Time"}
-            ),
-            driver2_laps[["LapNumber", "LapTimeSeconds"]].rename(
-                columns={"LapTimeSeconds": f"{driver2['Driver']}_Time"}
-            ),
-            on="LapNumber",
-            how="outer",
-        )
-
-        # Calculate gap (positive means driver1 is slower, negative means driver2 is slower)
-        merged_laps["Gap"] = (
-            merged_laps[f"{driver1['Driver']}_Time"]
-            - merged_laps[f"{driver2['Driver']}_Time"]
-        )
-
-        # Format lap times for display
-        merged_laps[f"{driver1['Driver']}_Display"] = merged_laps[
-            f"{driver1['Driver']}_Time"
-        ].apply(format_lap_time)
-        merged_laps[f"{driver2['Driver']}_Display"] = merged_laps[
-            f"{driver2['Driver']}_Time"
-        ].apply(format_lap_time)
-        merged_laps["Gap_Display"] = merged_laps["Gap"].apply(
-            lambda x: (
-                f"+{format_lap_time(abs(x))}"
-                if x > 0
-                else f"-{format_lap_time(abs(x))}" if x < 0 else "0.000"
             )
-        )
 
-        # Create a more readable DataFrame for display
-        display_df = merged_laps[
-            [
-                "LapNumber",
-                f"{driver1['Driver']}_Display",
-                f"{driver2['Driver']}_Display",
-                "Gap_Display",
-            ]
+    # Update layout for better visualization
+    fig.update_layout(
+        title=f"Lap Time Comparison: {driver1['Driver']} vs {driver2['Driver']}",
+        xaxis_title="Lap Number",
+        yaxis_title="Lap Time (minutes)",
+        template="plotly_dark",
+        hovermode="x unified",
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5
+        ),
+        # Format y-axis to show minutes:seconds
+        yaxis=dict(tickformat=".2f"),
+    )
+
+    # Adjust x-axis to show integer lap numbers
+    fig.update_xaxes(dtick=1, tickmode="linear")  # Tick every 1 lap
+
+    # Add custom hover information
+    fig.update_traces(
+        hovertemplate="<b>Lap %{x}</b><br>Time: %{y:.2f} min<extra></extra>"
+    )
+
+    status_text.text("✓ Comparison complete")
+    progress_bar.progress(1.0)
+    import time
+    time.sleep(0.3)
+    progress_bar.empty()
+    status_text.empty()
+
+    # Add table showing lap time details
+    st.subheader("Lap Time Details")
+
+    # Prepare data for table
+    merged_laps = pd.merge(
+        driver1_laps[["LapNumber", "LapTimeSeconds"]].rename(
+            columns={"LapTimeSeconds": f"{driver1['Driver']}_Time"}
+        ),
+        driver2_laps[["LapNumber", "LapTimeSeconds"]].rename(
+            columns={"LapTimeSeconds": f"{driver2['Driver']}_Time"}
+        ),
+        on="LapNumber",
+        how="outer",
+    )
+
+    # Calculate gap (positive means driver1 is slower, negative means driver2 is slower)
+    merged_laps["Gap"] = (
+        merged_laps[f"{driver1['Driver']}_Time"]
+        - merged_laps[f"{driver2['Driver']}_Time"]
+    )
+
+    # Format lap times for display
+    merged_laps[f"{driver1['Driver']}_Display"] = merged_laps[
+        f"{driver1['Driver']}_Time"
+    ].apply(format_lap_time)
+    merged_laps[f"{driver2['Driver']}_Display"] = merged_laps[
+        f"{driver2['Driver']}_Time"
+    ].apply(format_lap_time)
+    merged_laps["Gap_Display"] = merged_laps["Gap"].apply(
+        lambda x: (
+            f"+{format_lap_time(abs(x))}"
+            if x > 0
+            else f"-{format_lap_time(abs(x))}" if x < 0 else "0.000"
+        )
+    )
+
+    # Create a more readable DataFrame for display
+    display_df = merged_laps[
+        [
+            "LapNumber",
+            f"{driver1['Driver']}_Display",
+            f"{driver2['Driver']}_Display",
+            "Gap_Display",
         ]
-        display_df.columns = [
-            "Lap",
-            f"{driver1['Driver']}",
-            f"{driver2['Driver']}",
-            "Gap",
-        ]
+    ]
+    display_df.columns = [
+        "Lap",
+        f"{driver1['Driver']}",
+        f"{driver2['Driver']}",
+        "Gap",
+    ]
 
-        # Sort by lap number
-        display_df = display_df.sort_values("Lap")
+    # Sort by lap number
+    display_df = display_df.sort_values("Lap")
 
-        # Show table
-        st.dataframe(display_df, use_container_width=True)
+    # Show table
+    st.dataframe(display_df, use_container_width=True)
 
-        # Add summary stats
-        st.subheader("Summary Statistics")
+    # Add summary stats
+    st.subheader("Summary Statistics")
 
-        # Calculate stats
-        driver1_min = driver1_laps["LapTimeSeconds"].min()
-        driver1_max = driver1_laps["LapTimeSeconds"].max()
-        driver1_avg = driver1_laps["LapTimeSeconds"].mean()
+    # Calculate stats
+    driver1_min = driver1_laps["LapTimeSeconds"].min()
+    driver1_max = driver1_laps["LapTimeSeconds"].max()
+    driver1_avg = driver1_laps["LapTimeSeconds"].mean()
 
-        driver2_min = driver2_laps["LapTimeSeconds"].min()
-        driver2_max = driver2_laps["LapTimeSeconds"].max()
-        driver2_avg = driver2_laps["LapTimeSeconds"].mean()
+    driver2_min = driver2_laps["LapTimeSeconds"].min()
+    driver2_max = driver2_laps["LapTimeSeconds"].max()
+    driver2_avg = driver2_laps["LapTimeSeconds"].mean()
 
-        # Create columns for stats display
-        stat_col1, stat_col2, stat_col3 = st.columns(3)
+    # Create columns for stats display
+    stat_col1, stat_col2, stat_col3 = st.columns(3)
 
-        with stat_col1:
-            st.metric(
-                label=f"{driver1['Driver']} Best Lap",
-                value=format_lap_time(driver1_min),
-            )
-            st.metric(
-                label=f"{driver2['Driver']} Best Lap",
-                value=format_lap_time(driver2_min),
-            )
+    with stat_col1:
+        st.metric(
+            label=f"{driver1['Driver']} Best Lap",
+            value=format_lap_time(driver1_min),
+        )
+        st.metric(
+            label=f"{driver2['Driver']} Best Lap",
+            value=format_lap_time(driver2_min),
+        )
 
-        with stat_col2:
-            st.metric(
-                label=f"{driver1['Driver']} Average Lap",
-                value=format_lap_time(driver1_avg),
-            )
-            st.metric(
-                label=f"{driver2['Driver']} Average Lap",
-                value=format_lap_time(driver2_avg),
-            )
+    with stat_col2:
+        st.metric(
+            label=f"{driver1['Driver']} Average Lap",
+            value=format_lap_time(driver1_avg),
+        )
+        st.metric(
+            label=f"{driver2['Driver']} Average Lap",
+            value=format_lap_time(driver2_avg),
+        )
 
-        with stat_col3:
-            # Calculate best lap difference
-            best_lap_diff = driver1_min - driver2_min
-            if best_lap_diff < 0:
-                best_gap = f"{driver1['Driver']} faster by {format_lap_time(abs(best_lap_diff))}"
-            elif best_lap_diff > 0:
-                best_gap = f"{driver2['Driver']} faster by {format_lap_time(abs(best_lap_diff))}"
-            else:
-                best_gap = "No difference"
+    with stat_col3:
+        # Calculate best lap difference
+        best_lap_diff = driver1_min - driver2_min
+        if best_lap_diff < 0:
+            best_gap = f"{driver1['Driver']} faster by {format_lap_time(abs(best_lap_diff))}"
+        elif best_lap_diff > 0:
+            best_gap = f"{driver2['Driver']} faster by {format_lap_time(abs(best_lap_diff))}"
+        else:
+            best_gap = "No difference"
 
-            st.metric(label="Best Lap Difference", value=best_gap)
+        st.metric(label="Best Lap Difference", value=best_gap)
 
-            # Calculate average lap difference
-            avg_lap_diff = driver1_avg - driver2_avg
-            if avg_lap_diff < 0:
-                avg_gap = f"{driver1['Driver']} faster by {format_lap_time(abs(avg_lap_diff))}"
-            elif avg_lap_diff > 0:
-                avg_gap = f"{driver2['Driver']} faster by {format_lap_time(abs(avg_lap_diff))}"
-            else:
-                avg_gap = "No difference"
+        # Calculate average lap difference
+        avg_lap_diff = driver1_avg - driver2_avg
+        if avg_lap_diff < 0:
+            avg_gap = f"{driver1['Driver']} faster by {format_lap_time(abs(avg_lap_diff))}"
+        elif avg_lap_diff > 0:
+            avg_gap = f"{driver2['Driver']} faster by {format_lap_time(abs(avg_lap_diff))}"
+        else:
+            avg_gap = "No difference"
 
-            st.metric(label="Average Lap Difference", value=avg_gap)
+        st.metric(label="Average Lap Difference", value=avg_gap)
 
 
 # Function to show lap time comparison

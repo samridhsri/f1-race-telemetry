@@ -141,7 +141,7 @@ async def root():
 @app.get("/available-races", response_model=List[Race])
 async def get_available_races():
     races = []
-    for year in range(2022, 2025):
+    for year in range(2022, 2027):  # Include 2022-2026 for historical data and future predictions
         try:
             schedule = fastf1.get_event_schedule(year)
             for _, event in schedule.iterrows():
@@ -689,31 +689,47 @@ async def get_event_schedule_with_locations(year: int):
 @app.get("/prediction-events")
 async def get_prediction_events():
     """
-    Get available events for the 2025 season that can be used for prediction
+    Get available events for prediction (tries 2026, falls back to 2025 if not available)
     """
-    try:
-        # Get the 2025 schedule
-        schedule = fastf1.get_event_schedule(2025)
-        events = []
+    # Try 2026 first, then fall back to 2025 if 2026 schedule is not available yet
+    years_to_try = [2026, 2025]
 
-        for _, event in schedule.iterrows():
-            events.append(
-                {
-                    "year": 2025,
-                    "name": event["EventName"],
-                    "round": event["RoundNumber"],
-                    "date": event["EventDate"].strftime("%Y-%m-%d"),
-                    "location": event["Location"],
-                    "country": event["Country"],
-                }
-            )
+    for year in years_to_try:
+        try:
+            logger.info(f"Attempting to fetch {year} race schedule for predictions")
+            schedule = fastf1.get_event_schedule(year)
 
-        return events
-    except Exception as e:
-        logger.error(f"Error fetching 2025 race schedule: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Error fetching 2025 race schedule: {str(e)}"
-        )
+            # Check if we got valid data
+            if schedule is None or len(schedule) == 0:
+                logger.warning(f"{year} schedule is empty, trying next year")
+                continue
+
+            events = []
+            for _, event in schedule.iterrows():
+                events.append(
+                    {
+                        "year": year,
+                        "name": event["EventName"],
+                        "round": event["RoundNumber"],
+                        "date": event["EventDate"].strftime("%Y-%m-%d"),
+                        "location": event["Location"],
+                        "country": event["Country"],
+                    }
+                )
+
+            logger.info(f"Successfully fetched {len(events)} events from {year} schedule")
+            return events
+
+        except Exception as e:
+            logger.warning(f"Failed to fetch {year} schedule: {e}")
+            if year == years_to_try[-1]:
+                # This was the last year to try
+                logger.error(f"All attempts failed. Last error: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Could not fetch race schedule. 2026 schedule may not be available yet in FastF1. Try using 2025 data for now. Error: {str(e)}"
+                )
+            continue
 
 
 @app.post("/start-prediction")

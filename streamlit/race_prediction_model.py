@@ -74,8 +74,8 @@ except Exception as e:
         logger.error(f"Failed to enable fallback cache: {e2}")
         logger.warning("Running without FastF1 cache - performance will be degraded")
 
-# 2025 driver lineup
-DRIVERS_2025 = {
+# 2026 driver lineup (projected based on current contracts and rumors)
+DRIVERS_2026 = {
     "McLaren": {"drivers": ["Lando Norris", "Oscar Piastri"]},
     "Ferrari": {"drivers": ["Charles Leclerc", "Lewis Hamilton"]},
     "Red Bull Racing": {"drivers": ["Max Verstappen", "Yuki Tsunoda"]},
@@ -161,16 +161,16 @@ def normalize_driver_name(driver_code_or_name):
     return driver
 
 
-def get_team_for_driver(driver_name, year=2024):
-    """Get team for a driver in a specific year or 2025"""
+def get_team_for_driver(driver_name, year=2025):
+    """Get team for a driver in a specific year or 2026"""
     normalized_name = normalize_driver_name(driver_name)
 
-    # Check 2025 lineup first
-    for team, data in DRIVERS_2025.items():
+    # Check 2026 lineup first
+    for team, data in DRIVERS_2026.items():
         if normalized_name in data["drivers"]:
             return team
 
-    # If not found in 2025 lineup, we need to handle this case
+    # If not found in 2026 lineup, we need to handle this case
     # For simplicity, we'll just return "Unknown"
     return "Unknown"
 
@@ -181,7 +181,7 @@ def fetch_historical_race_data(race_name, years):
 
     Parameters:
     - race_name: Name of the race (e.g., 'Australian Grand Prix')
-    - years: List of years to use for training (e.g., [2022, 2023, 2024])
+    - years: List of years to use for training (e.g., [2023, 2024, 2025])
 
     Returns:
     - Dictionary containing DataFrames for different data types
@@ -708,10 +708,10 @@ def build_model(training_data, experiment_name="F1 Race Prediction", race_name="
             gbt = GBTRegressor(
                 featuresCol="features",
                 labelCol=target_col,
-                maxIter=max_iter,
-                maxDepth=max_depth,
-                stepSize=step_size,
-            )
+                maxIter=20,      # Change from 50 to 20
+                maxDepth=2,      # Change from 3 to 2
+                stepSize=0.1,
+                )
 
             # Create the pipeline
             pipeline = Pipeline(
@@ -818,17 +818,17 @@ def build_model(training_data, experiment_name="F1 Race Prediction", race_name="
             return None, None
 
 
-def create_2025_driver_dataset(training_data):
+def create_2026_driver_dataset(training_data):
     """
-    Create a dataset for 2025 drivers based on historical data
+    Create a dataset for 2026 drivers based on historical data
 
     Parameters:
     - training_data: Preprocessed historical data
 
     Returns:
-    - DataFrame with 2025 driver predictions
+    - DataFrame with 2026 driver predictions
     """
-    logger.info("Creating 2025 driver dataset")
+    logger.info("Creating 2026 driver dataset")
 
     # Start with the most recent year's data
     latest_year = training_data["Year"].max()
@@ -836,11 +836,11 @@ def create_2025_driver_dataset(training_data):
 
     latest_data = training_data[training_data["Year"] == latest_year].copy()
 
-    # Create a new dataset for 2025 predictions
+    # Create a new dataset for 2026 predictions
     prediction_rows = []
 
-    # Process each team and its drivers from our 2025 lineup dictionary
-    for team_name, team_info in DRIVERS_2025.items():
+    # Process each team and its drivers from our 2026 lineup dictionary
+    for team_name, team_info in DRIVERS_2026.items():
         for driver_name in team_info["drivers"]:
 
             # Case 1: Driver exists in historical data
@@ -854,8 +854,8 @@ def create_2025_driver_dataset(training_data):
                     .to_dict()
                 )
 
-                # Update for 2025
-                driver_recent["Year"] = 2025
+                # Update for 2026
+                driver_recent["Year"] = 2026
                 driver_recent["TeamName"] = team_name
 
                 prediction_rows.append(driver_recent)
@@ -882,7 +882,7 @@ def create_2025_driver_dataset(training_data):
                 # Modify teammate data for new driver
                 # New drivers typically perform worse than experienced teammates
                 teammate_data["FullName"] = driver_name
-                teammate_data["Year"] = 2025
+                teammate_data["Year"] = 2026
                 teammate_data["TeamName"] = team_name
 
                 # Adjust performance metrics (slightly worse than teammate)
@@ -910,7 +910,7 @@ def create_2025_driver_dataset(training_data):
                 driver_row = {
                     "FullName": driver_name,
                     "TeamName": team_name,
-                    "Year": 2025,
+                    "Year": 2026,
                     "GrandPrix": race_name,
                     "GridPosition": team_avg.get(
                         "GridPosition", 10
@@ -947,7 +947,7 @@ def create_2025_driver_dataset(training_data):
             driver_row = {
                 "FullName": driver_name,
                 "TeamName": team_name,
-                "Year": 2025,
+                "Year": 2026,
                 "GrandPrix": race_name,
                 "GridPosition": baseline_position,
                 "GridPositionDelta": 0,
@@ -987,7 +987,7 @@ def create_2025_driver_dataset(training_data):
             else:
                 predictions_df[col] = 0
 
-    logger.info(f"Created prediction dataset with {len(predictions_df)} 2025 drivers")
+    logger.info(f"Created prediction dataset with {len(predictions_df)} 2026 drivers")
 
     return predictions_df
 
@@ -1137,18 +1137,18 @@ def calculate_race_details(predictions_df, race_name, avg_lap_time=90.0, laps=58
 
 def predict_race_outcome(model, spark, training_data, prediction_data):
     """
-    Predict race outcomes for 2025 using PySpark model
+    Predict race outcomes for 2026 using PySpark model
 
     Parameters:
     - model: Trained PySpark pipeline model
     - spark: SparkSession
     - training_data: Historical data used for training
-    - prediction_data: Data for 2025 drivers
+    - prediction_data: Data for 2026 drivers
 
     Returns:
     - DataFrame with predictions
     """
-    logger.info("Predicting 2025 race outcome using PySpark model")
+    logger.info("Predicting 2026 race outcome using PySpark model")
 
     if (
         model is None
@@ -1467,7 +1467,7 @@ def save_prediction_results(predictions_df, race_name):
         logger.error(f"Error saving JSON file: {e}")
 
 
-def run_prediction_model(race_name, source_years_str="2022,2023,2024"):
+def run_prediction_model(race_name, source_years_str="2023,2024,2025"):
     """
     Main function to run the prediction model
 
@@ -1521,13 +1521,13 @@ def run_prediction_model(race_name, source_years_str="2022,2023,2024"):
             logger.error("Failed to build model")
             return None
 
-        # 4. Create dataset for 2025 drivers
-        logger.info("Step 4: Creating 2025 driver dataset...")
+        # 4. Create dataset for 2026 drivers
+        logger.info("Step 4: Creating 2026 driver dataset...")
         try:
-            prediction_data = create_2025_driver_dataset(processed_data)
+            prediction_data = create_2026_driver_dataset(processed_data)
 
             if prediction_data is None or prediction_data.empty:
-                logger.error("Failed to create 2025 driver dataset")
+                logger.error("Failed to create 2026 driver dataset")
                 return None
 
             logger.info(
@@ -1535,7 +1535,7 @@ def run_prediction_model(race_name, source_years_str="2022,2023,2024"):
             )
 
         except Exception as e:
-            logger.error(f"Error creating 2025 driver dataset: {e}")
+            logger.error(f"Error creating 2026 driver dataset: {e}")
             import traceback
 
             logger.error(traceback.format_exc())

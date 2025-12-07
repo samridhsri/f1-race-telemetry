@@ -232,6 +232,12 @@ def fetch_driver_data(
     year: int, event: str, session_type: str, driver_info: Dict
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     try:
+        # Create progress indicator
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        status_text.text(f"Fetching data for {driver_info.get('Driver', 'driver')}...")
+        progress_bar.progress(0.1)
+        
         client = get_mongodb_client()
         db = client[DB_NAME]
 
@@ -240,6 +246,9 @@ def fetch_driver_data(
         driver_number = driver_info["DriverNumber"]
 
         # Fetch telemetry data using driver number
+        status_text.text(f"Fetching telemetry data for {driver_code}...")
+        progress_bar.progress(0.2)
+        
         telemetry_collection = db["car_telemetry"]
         telemetry_query = {
             "Year": year,
@@ -248,9 +257,22 @@ def fetch_driver_data(
             "Driver": driver_number,
         }
 
-        telemetry_data = list(telemetry_collection.find(telemetry_query))
+        # Count and fetch with projection
+        telemetry_count = telemetry_collection.count_documents(telemetry_query)
+        status_text.text(f"Fetching {telemetry_count:,} telemetry records...")
+        progress_bar.progress(0.3)
+        
+        # Projection for telemetry - only fetch needed fields
+        telemetry_projection = {
+            "Speed": 1, "RPM": 1, "Throttle": 1, "Brake": 1, "DRS": 1,
+            "Time": 1, "LapNumber": 1, "Date": 1, "_id": 0
+        }
+        telemetry_data = list(telemetry_collection.find(telemetry_query, telemetry_projection))
 
         # Fetch position data using driver number
+        status_text.text(f"Fetching position data for {driver_code}...")
+        progress_bar.progress(0.5)
+        
         position_collection = db["car_position"]
         position_query = {
             "Year": year,
@@ -259,9 +281,21 @@ def fetch_driver_data(
             "Driver": driver_number,
         }
 
-        position_data = list(position_collection.find(position_query))
+        # Count and fetch with projection
+        position_count = position_collection.count_documents(position_query)
+        status_text.text(f"Fetching {position_count:,} position records...")
+        progress_bar.progress(0.6)
+        
+        # Projection for position - only fetch needed fields
+        position_projection = {
+            "X": 1, "Y": 1, "Z": 1, "Time": 1, "LapNumber": 1, "Date": 1, "_id": 0
+        }
+        position_data = list(position_collection.find(position_query, position_projection))
 
         # Fetch lap data for this driver
+        status_text.text(f"Fetching lap data for {driver_code}...")
+        progress_bar.progress(0.8)
+        
         lap_collection = db["telemetry"]
         lap_query = {
             "Year": year,
@@ -272,9 +306,12 @@ def fetch_driver_data(
 
         lap_data = list(
             lap_collection.find(
-                lap_query, {"LapNumber": 1, "LapStartTime": 1, "Time": 1, "Date": 1}
+                lap_query, {"LapNumber": 1, "LapStartTime": 1, "Time": 1, "Date": 1, "_id": 0}
             )
         )
+        
+        status_text.text("Processing data...")
+        progress_bar.progress(0.9)
 
         # Convert to DataFrames
         if telemetry_data:
@@ -305,8 +342,6 @@ def fetch_driver_data(
 
         if lap_data:
             lap_df = pd.DataFrame(lap_data)
-            if "_id" in lap_df.columns:
-                lap_df = lap_df.drop("_id", axis=1)
 
             # Sort lap data by LapNumber
             if "LapNumber" in lap_df.columns:
@@ -314,9 +349,22 @@ def fetch_driver_data(
         else:
             lap_df = pd.DataFrame()
 
+        status_text.text(f"✓ Loaded {len(telemetry_df):,} telemetry, {len(position_df):,} position, {len(lap_df)} lap records")
+        progress_bar.progress(1.0)
+        
+        # Clear progress indicators after a brief moment
+        import time
+        time.sleep(0.3)
+        progress_bar.empty()
+        status_text.empty()
+
         return telemetry_df, position_df, lap_df
 
     except Exception as e:
+        if 'progress_bar' in locals():
+            progress_bar.empty()
+        if 'status_text' in locals():
+            status_text.empty()
         st.error(f"Error fetching driver data: {e}")
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
