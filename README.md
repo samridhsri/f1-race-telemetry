@@ -3,6 +3,18 @@
 ## Overview
 This repository develops a real-time Formula 1 data analytics system that processes live telemetry data through a streaming pipeline and presents interactive dashboards for race analysis, driver performance comparison, and ML-powered race predictions.
 
+## Team
+
+- Samridh Srivastava (ss18906)
+- Hardik Setia (hs5595)
+- Bryce Miranda (bm3986)
+
+## Report and Presentation link
+
+* **Report**: [View Report](https://drive.google.com/file/d/1T01AzpU4vXa4vlYIEUEZoE_7dLAKRqzw/view?usp=sharing)
+* **Presentation**: [View Presentation](https://docs.google.com/presentation/d/18s8zbc-00wfGvrGvgqM6sVNclCIL7nIg/edit?usp=drive_link&ouid=111586551984895934380&rtpof=true&sd=true)
+
+
 ## Repository Structure
 
 ### `api/`
@@ -37,7 +49,7 @@ Utilizes Docker, Apache Kafka, Apache Spark, MongoDB, PostgreSQL, FastAPI, Strea
 To set up this project locally, run the following commands:
 
 ```bash
-git clone https://github.com/yourusername/f1-race-flux.git
+git clone https://github.com/samridhsri/f1-race-telemetry
 cd f1-race-flux
 ```
 
